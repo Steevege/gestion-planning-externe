@@ -12,8 +12,7 @@ export default function NewPlanningPage() {
   const [formData, setFormData] = useState({
     date_debut: '',
     date_fin: '',
-    quota_min: 8,
-    quota_max: 10,
+    nb_externes: 10,
     createur: '',
   })
 
@@ -175,48 +174,38 @@ export default function NewPlanningPage() {
               </div>
             )}
 
-            {/* Quota gardes */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="quota_min" className="block text-sm font-medium text-gray-700 mb-2">
-                  Quota minimum de gardes *
-                </label>
-                <input
-                  type="number"
-                  id="quota_min"
-                  min="1"
-                  max="15"
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  value={formData.quota_min}
-                  onChange={(e) => setFormData({ ...formData, quota_min: parseInt(e.target.value) })}
-                />
-                <p className="text-xs text-gray-500 mt-1">Gardes minimum par externe</p>
-              </div>
-
-              <div>
-                <label htmlFor="quota_max" className="block text-sm font-medium text-gray-700 mb-2">
-                  Quota maximum de gardes *
-                </label>
-                <input
-                  type="number"
-                  id="quota_max"
-                  min="1"
-                  max="15"
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  value={formData.quota_max}
-                  onChange={(e) => setFormData({ ...formData, quota_max: parseInt(e.target.value) })}
-                />
-                <p className="text-xs text-gray-500 mt-1">Gardes maximum par externe</p>
-              </div>
+            {/* Nombre d'externes */}
+            <div>
+              <label htmlFor="nb_externes" className="block text-sm font-medium text-gray-700 mb-2">
+                Nombre d'externes dans le groupe *
+              </label>
+              <input
+                type="number"
+                id="nb_externes"
+                min="2"
+                max="20"
+                required
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                value={formData.nb_externes}
+                onChange={(e) => setFormData({ ...formData, nb_externes: parseInt(e.target.value) })}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Nombre de personnes qui participeront aux gardes (généralement 8-12 externes)
+              </p>
             </div>
 
-            {/* Validation quota */}
-            {formData.quota_min > formData.quota_max && (
-              <div className="p-4 bg-red-50 text-red-800 rounded-lg">
-                <p className="text-sm font-medium">
-                  ⚠️ Le quota minimum ne peut pas être supérieur au quota maximum
+            {/* Info calcul automatique */}
+            {nbJours > 0 && formData.nb_externes > 0 && (
+              <div className="p-4 bg-blue-50 rounded-lg">
+                <p className="text-sm text-blue-900">
+                  📊 <strong>Calcul automatique :</strong> Chaque externe fera environ{' '}
+                  <strong>{Math.round(nbJours / formData.nb_externes)}</strong> garde(s) sur la période
+                  {nbJours % formData.nb_externes !== 0 && (
+                    <span className="text-xs block mt-1">
+                      (Certains feront {Math.floor(nbJours / formData.nb_externes)}, d'autres{' '}
+                      {Math.ceil(nbJours / formData.nb_externes)} pour équilibrer)
+                    </span>
+                  )}
                 </p>
               </div>
             )}
@@ -241,7 +230,7 @@ export default function NewPlanningPage() {
               </button>
               <button
                 type="submit"
-                disabled={loading || formData.quota_min > formData.quota_max}
+                disabled={loading}
                 className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Création...' : 'Créer le planning'}

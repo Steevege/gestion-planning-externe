@@ -9,8 +9,7 @@ type Planning = {
   id: string
   date_debut: string
   date_fin: string
-  quota_min: number
-  quota_max: number
+  nb_externes: number
   statut: string
   createur: string
   date_creation: string
@@ -224,9 +223,9 @@ export default function AdminDashboardPage() {
             </div>
 
             <div className="bg-gray-50 p-4 rounded-lg">
-              <p className="text-sm text-gray-600 mb-1">Quota de gardes</p>
+              <p className="text-sm text-gray-600 mb-1">Nombre d'externes</p>
               <p className="text-lg font-semibold text-gray-900">
-                {planning.quota_min} - {planning.quota_max} gardes
+                {planning.nb_externes} externe{planning.nb_externes > 1 ? 's' : ''}
               </p>
             </div>
 

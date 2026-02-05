@@ -5,20 +5,20 @@ import { supabase } from '@/app/lib/supabase'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { date_debut, date_fin, quota_min, quota_max, createur } = body
+    const { date_debut, date_fin, nb_externes, createur } = body
 
     // Validation des données
-    if (!date_debut || !date_fin || !createur) {
+    if (!date_debut || !date_fin || !createur || !nb_externes) {
       return NextResponse.json(
-        { error: 'Les champs date_debut, date_fin et createur sont obligatoires' },
+        { error: 'Les champs date_debut, date_fin, nb_externes et createur sont obligatoires' },
         { status: 400 }
       )
     }
 
-    // Validation des quotas
-    if (quota_min > quota_max) {
+    // Validation du nombre d'externes
+    if (nb_externes < 2 || nb_externes > 20) {
       return NextResponse.json(
-        { error: 'Le quota minimum ne peut pas être supérieur au quota maximum' },
+        { error: 'Le nombre d\'externes doit être entre 2 et 20' },
         { status: 400 }
       )
     }
@@ -56,8 +56,7 @@ export async function POST(request: NextRequest) {
         {
           date_debut,
           date_fin,
-          quota_min,
-          quota_max,
+          nb_externes,
           createur,
           statut: 'draft',
         },
