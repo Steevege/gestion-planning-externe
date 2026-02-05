@@ -668,7 +668,7 @@ export default function AdminDashboardPage() {
                           {isDimanche && ' 🌟'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {resultat.participants?.nom || 'N/A'}
+                          {resultat.participant?.nom || 'N/A'}
                         </td>
                       </tr>
                     )
