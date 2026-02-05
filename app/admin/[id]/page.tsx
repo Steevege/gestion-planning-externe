@@ -25,12 +25,23 @@ type Participant = {
   date_completion: string | null
 }
 
+type Resultat = {
+  id: string
+  planning_id: string
+  participant_id: string
+  date_garde: string
+  participant?: {
+    nom: string
+  }
+}
+
 export default function AdminDashboardPage() {
   const params = useParams()
   const id = params?.id as string
 
   const [planning, setPlanning] = useState<Planning | null>(null)
   const [participants, setParticipants] = useState<Participant[]>([])
+  const [resultats, setResultats] = useState<Resultat[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -38,6 +49,12 @@ export default function AdminDashboardPage() {
   const [formData, setFormData] = useState({ nom: '', email: '' })
   const [addingParticipant, setAddingParticipant] = useState(false)
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
+
+  // État génération du planning
+  const [generating, setGenerating] = useState(false)
+  const [generateError, setGenerateError] = useState<string | null>(null)
+  const [generateSuccess, setGenerateSuccess] = useState(false)
+  const [generateStats, setGenerateStats] = useState<any>(null)
 
   // Charger le planning et les participants
   useEffect(() => {
@@ -64,6 +81,13 @@ export default function AdminDashboardPage() {
       const participantsRes = await fetch(`/api/participants?planning_id=${id}`)
       const participantsData = await participantsRes.json()
       setParticipants(participantsData.participants || [])
+
+      // Fetch résultats si le planning est généré
+      if (currentPlanning.statut === 'generated' || currentPlanning.statut === 'finalized') {
+        const resultatsRes = await fetch(`/api/resultats?planning_id=${id}`)
+        const resultatsData = await resultatsRes.json()
+        setResultats(resultatsData.resultats || [])
+      }
     } catch (err) {
       setError('Erreur lors du chargement des données')
       console.error(err)
@@ -134,6 +158,39 @@ export default function AdminDashboardPage() {
       await fetchData()
     } catch (err) {
       alert('Erreur lors de la suppression du participant')
+    }
+  }
+
+  // Générer le planning
+  const handleGenerate = async () => {
+    if (!confirm('Êtes-vous sûr de vouloir générer le planning ? Cette opération peut prendre quelques secondes.')) {
+      return
+    }
+
+    setGenerating(true)
+    setGenerateError(null)
+    setGenerateSuccess(false)
+    setGenerateStats(null)
+
+    try {
+      const response = await fetch(`/api/plannings/${id}/generate`, {
+        method: 'POST',
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Erreur lors de la génération')
+      }
+
+      setGenerateSuccess(true)
+      setGenerateStats(data)
+      await fetchData() // Recharger les données pour voir le nouveau statut
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Une erreur est survenue'
+      setGenerateError(errorMsg)
+    } finally {
+      setGenerating(false)
     }
   }
 
@@ -388,23 +445,141 @@ export default function AdminDashboardPage() {
           )}
         </div>
 
-        {/* Actions */}
-        <div className="mt-6 flex gap-4">
-          <Link
-            href="/"
-            className="px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition"
-          >
-            ← Retour à l'accueil
-          </Link>
+        {/* Résultats du planning généré */}
+        {(planning.statut === 'generated' || planning.statut === 'finalized') && resultats.length > 0 && (
+          <div className="bg-white shadow-md rounded-lg p-8 mb-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-6">
+              📅 Planning généré ({resultats.length} gardes)
+            </h2>
 
-          {nbParticipants > 0 && progressPercent === 100 && (
-            <button
-              disabled
-              className="px-6 py-3 bg-gray-100 text-gray-400 rounded-lg cursor-not-allowed"
-            >
-              🎲 Générer le planning (À venir - F4)
-            </button>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Date
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Jour
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Externe de garde
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {resultats.map((resultat, index) => {
+                    const date = new Date(resultat.date_garde)
+                    const jourSemaine = date.toLocaleDateString('fr-FR', { weekday: 'long' })
+                    const dateFormatted = date.toLocaleDateString('fr-FR', {
+                      day: '2-digit',
+                      month: 'long',
+                      year: 'numeric',
+                    })
+                    const isDimanche = date.getDay() === 0
+
+                    return (
+                      <tr
+                        key={resultat.id}
+                        className={`${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} ${
+                          isDimanche ? 'bg-yellow-50' : ''
+                        }`}
+                      >
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {dateFormatted}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 capitalize">
+                          {jourSemaine}
+                          {isDimanche && ' 🌟'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {resultat.participants?.nom || 'N/A'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Légende */}
+            <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+              <p className="text-sm text-yellow-800">
+                🌟 = Dimanche (payé double)
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="mt-6 flex flex-col gap-4">
+          {/* Message de succès */}
+          {generateSuccess && generateStats && (
+            <div className="p-6 bg-green-50 border-2 border-green-200 rounded-lg">
+              <h3 className="text-xl font-bold text-green-800 mb-3">
+                ✅ Planning généré avec succès !
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-white p-3 rounded-lg">
+                  <p className="text-sm text-gray-600">Gardes assignées</p>
+                  <p className="text-2xl font-bold text-green-600">
+                    {generateStats.nb_assignations}
+                  </p>
+                </div>
+                <div className="bg-white p-3 rounded-lg">
+                  <p className="text-sm text-gray-600">Préférences respectées</p>
+                  <p className="text-2xl font-bold text-green-600">
+                    {generateStats.stats?.preferences_respectees || 0}/{generateStats.stats?.total_preferences || 0}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    ({Math.round((generateStats.stats?.preferences_respectees / generateStats.stats?.total_preferences) * 100) || 0}%)
+                  </p>
+                </div>
+                <div className="bg-white p-3 rounded-lg">
+                  <p className="text-sm text-gray-600">Participants</p>
+                  <p className="text-2xl font-bold text-green-600">
+                    {generateStats.stats?.nb_participants || 0}
+                  </p>
+                </div>
+              </div>
+            </div>
           )}
+
+          {/* Message d'erreur */}
+          {generateError && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-800 font-medium">❌ {generateError}</p>
+            </div>
+          )}
+
+          <div className="flex gap-4">
+            <Link
+              href="/"
+              className="px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition"
+            >
+              ← Retour à l'accueil
+            </Link>
+
+            {nbParticipants > 0 && progressPercent === 100 && planning.statut !== 'generated' && planning.statut !== 'finalized' && (
+              <button
+                onClick={handleGenerate}
+                disabled={generating}
+                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
+              >
+                {generating ? '⏳ Génération en cours...' : '🎲 Générer le planning'}
+              </button>
+            )}
+
+            {(planning.statut === 'generated' || planning.statut === 'finalized') && (
+              <button
+                onClick={handleGenerate}
+                disabled={generating || planning.statut === 'finalized'}
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {generating ? '⏳ Régénération...' : '🔄 Régénérer le planning'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
