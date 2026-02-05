@@ -202,7 +202,7 @@ export default function AdminDashboardPage() {
       return [
         dateFormatted,
         jourSemaine.charAt(0).toUpperCase() + jourSemaine.slice(1),
-        resultat.participants?.nom || 'N/A',
+        resultat.participant?.nom || 'N/A',
         isDimanche ? '★' : '',
       ]
     })
