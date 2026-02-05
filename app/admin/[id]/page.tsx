@@ -3,7 +3,10 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { format, addDays } from 'date-fns'
 import { generateSaisieUrl } from '@/app/lib/tokenGenerator'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 type Planning = {
   id: string
@@ -100,19 +103,19 @@ export default function AdminDashboardPage() {
       const participantsData = await participantsRes.json()
       setParticipants(participantsData.participants || [])
 
-      // Fetch résultats et contraintes si le planning est généré
+      // Récupérer toutes les contraintes (pour stats et satisfaction)
+      const participantIds = participantsData.participants.map((p: Participant) => p.id)
+      if (participantIds.length > 0) {
+        const contraintesRes = await fetch(`/api/contraintes/all?participant_ids=${participantIds.join(',')}`)
+        const contraintesData = await contraintesRes.json()
+        setContraintes(contraintesData.contraintes || [])
+      }
+
+      // Fetch résultats si le planning est généré
       if (currentPlanning.statut === 'generated' || currentPlanning.statut === 'finalized') {
         const resultatsRes = await fetch(`/api/resultats?planning_id=${id}`)
         const resultatsData = await resultatsRes.json()
         setResultats(resultatsData.resultats || [])
-
-        // Récupérer toutes les contraintes pour calculer la satisfaction
-        const participantIds = participantsData.participants.map((p: Participant) => p.id)
-        if (participantIds.length > 0) {
-          const contraintesRes = await fetch(`/api/contraintes/all?participant_ids=${participantIds.join(',')}`)
-          const contraintesData = await contraintesRes.json()
-          setContraintes(contraintesData.contraintes || [])
-        }
       }
     } catch (err) {
       setError('Erreur lors du chargement des données')
@@ -164,6 +167,68 @@ export default function AdminDashboardPage() {
     } catch (err) {
       alert('Erreur lors de la copie du lien')
     }
+  }
+
+  // Générer PDF
+  const generatePDF = () => {
+    if (!planning || resultats.length === 0) return
+
+    const doc = new jsPDF()
+
+    // Titre
+    doc.setFontSize(18)
+    doc.text('Planning de gardes', 14, 20)
+
+    // Infos planning
+    doc.setFontSize(11)
+    doc.text(
+      `Période : ${new Date(planning.date_debut).toLocaleDateString('fr-FR')} au ${new Date(planning.date_fin).toLocaleDateString('fr-FR')}`,
+      14,
+      30
+    )
+    doc.text(`Créé par : ${planning.createur}`, 14, 37)
+
+    // Tableau
+    const tableData = resultats.map((resultat) => {
+      const date = new Date(resultat.date_garde)
+      const jourSemaine = date.toLocaleDateString('fr-FR', { weekday: 'long' })
+      const dateFormatted = date.toLocaleDateString('fr-FR', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+      })
+      const isDimanche = date.getDay() === 0
+
+      return [
+        dateFormatted,
+        jourSemaine.charAt(0).toUpperCase() + jourSemaine.slice(1),
+        resultat.participants?.nom || 'N/A',
+        isDimanche ? '★' : '',
+      ]
+    })
+
+    autoTable(doc, {
+      head: [['Date', 'Jour', 'Externe de garde', 'Dimanche']],
+      body: tableData,
+      startY: 45,
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [59, 130, 246] },
+      columnStyles: {
+        0: { cellWidth: 50 },
+        1: { cellWidth: 35 },
+        2: { cellWidth: 70 },
+        3: { cellWidth: 20, halign: 'center' },
+      },
+    })
+
+    // Légende
+    const finalY = (doc as any).lastAutoTable.finalY || 45
+    doc.setFontSize(9)
+    doc.text('★ = Dimanche', 14, finalY + 10)
+
+    // Télécharger
+    const filename = `Planning_${format(new Date(planning.date_debut), 'dd-MM-yyyy')}_au_${format(new Date(planning.date_fin), 'dd-MM-yyyy')}.pdf`
+    doc.save(filename)
   }
 
   // Copier tous les liens
@@ -619,15 +684,22 @@ export default function AdminDashboardPage() {
               </p>
             </div>
 
-            {/* Bouton export Excel */}
-            <div className="mt-6">
+            {/* Boutons export */}
+            <div className="mt-6 flex gap-4 flex-wrap">
               <a
                 href={`/api/plannings/${id}/export`}
                 download
                 className="inline-flex items-center px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
               >
-                📥 Télécharger en Excel (.xlsx)
+                📥 Télécharger Excel (.xlsx)
               </a>
+
+              <button
+                onClick={generatePDF}
+                className="inline-flex items-center px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-semibold"
+              >
+                📄 Télécharger PDF
+              </button>
             </div>
           </div>
         )}
@@ -698,6 +770,91 @@ export default function AdminDashboardPage() {
                 %
               </p>
             </div>
+          </div>
+        )}
+
+        {/* Stats pré-génération */}
+        {nbParticipants > 0 && progressPercent === 100 && planning.statut !== 'generated' && planning.statut !== 'finalized' && contraintes.length > 0 && (
+          <div className="bg-white shadow-md rounded-lg p-8 mb-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-6">
+              📊 Analyse des vœux avant génération
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <p className="text-sm text-gray-600 mb-1">Total contraintes</p>
+                <p className="text-3xl font-bold text-blue-600">{contraintes.length}</p>
+              </div>
+
+              <div className="bg-red-50 p-4 rounded-lg">
+                <p className="text-sm text-gray-600 mb-1">Indisponibilités</p>
+                <p className="text-3xl font-bold text-red-600">
+                  {contraintes.filter((c) => c.type_contrainte === 'unavailable').length}
+                </p>
+              </div>
+
+              <div className="bg-green-50 p-4 rounded-lg">
+                <p className="text-sm text-gray-600 mb-1">Préférences</p>
+                <p className="text-3xl font-bold text-green-600">
+                  {contraintes.filter((c) => c.type_contrainte === 'preferred').length}
+                </p>
+              </div>
+            </div>
+
+            {/* Alertes potentielles */}
+            {(() => {
+              const dateDebut = new Date(planning.date_debut)
+              const dateFin = new Date(planning.date_fin)
+              const alertes: string[] = []
+
+              // Vérifier les participants sans préférences
+              participants.forEach((p) => {
+                const prefsCount = contraintes.filter(
+                  (c) => c.participant_id === p.id && c.type_contrainte === 'preferred'
+                ).length
+                if (prefsCount === 0) {
+                  alertes.push(`⚠️ ${p.nom} n'a exprimé aucune préférence`)
+                }
+              })
+
+              // Vérifier les dates problématiques
+              let currentDate = new Date(dateDebut)
+              while (currentDate <= dateFin) {
+                const dateStr = format(currentDate, 'yyyy-MM-dd')
+                const indisposCount = contraintes.filter(
+                  (c) => c.date_garde === dateStr && c.type_contrainte === 'unavailable'
+                ).length
+
+                if (indisposCount >= nbParticipants) {
+                  alertes.push(
+                    `🚨 ${new Date(dateStr).toLocaleDateString('fr-FR')} : TOUS les externes sont indisponibles !`
+                  )
+                } else if (indisposCount >= nbParticipants * 0.8) {
+                  alertes.push(
+                    `⚠️ ${new Date(dateStr).toLocaleDateString('fr-FR')} : ${indisposCount}/${nbParticipants} externes indisponibles`
+                  )
+                }
+
+                currentDate = addDays(currentDate, 1)
+              }
+
+              return alertes.length > 0 ? (
+                <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-4">
+                  <h3 className="font-semibold text-yellow-900 mb-2">⚠️ Alertes détectées</h3>
+                  <ul className="space-y-1 text-sm text-yellow-800">
+                    {alertes.map((alerte, i) => (
+                      <li key={i}>{alerte}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="bg-green-50 border-2 border-green-300 rounded-lg p-4">
+                  <p className="text-green-800 font-medium">
+                    ✅ Aucun problème détecté, vous pouvez générer le planning !
+                  </p>
+                </div>
+              )
+            })()}
           </div>
         )}
 
