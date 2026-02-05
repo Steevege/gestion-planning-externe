@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { generateSaisieUrl } from '@/app/lib/tokenGenerator'
 
@@ -35,13 +35,31 @@ type Resultat = {
   }
 }
 
+type Contrainte = {
+  id: string
+  participant_id: string
+  date_garde: string
+  type_contrainte: 'unavailable' | 'preferred' | 'available'
+}
+
+type SatisfactionStats = {
+  participant_id: string
+  nom: string
+  preferences_demandees: number
+  preferences_obtenues: number
+  taux_satisfaction: number
+  nb_gardes: number
+}
+
 export default function AdminDashboardPage() {
   const params = useParams()
+  const router = useRouter()
   const id = params?.id as string
 
   const [planning, setPlanning] = useState<Planning | null>(null)
   const [participants, setParticipants] = useState<Participant[]>([])
   const [resultats, setResultats] = useState<Resultat[]>([])
+  const [contraintes, setContraintes] = useState<Contrainte[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -82,11 +100,19 @@ export default function AdminDashboardPage() {
       const participantsData = await participantsRes.json()
       setParticipants(participantsData.participants || [])
 
-      // Fetch résultats si le planning est généré
+      // Fetch résultats et contraintes si le planning est généré
       if (currentPlanning.statut === 'generated' || currentPlanning.statut === 'finalized') {
         const resultatsRes = await fetch(`/api/resultats?planning_id=${id}`)
         const resultatsData = await resultatsRes.json()
         setResultats(resultatsData.resultats || [])
+
+        // Récupérer toutes les contraintes pour calculer la satisfaction
+        const participantIds = participantsData.participants.map((p: Participant) => p.id)
+        if (participantIds.length > 0) {
+          const contraintesRes = await fetch(`/api/contraintes/all?participant_ids=${participantIds.join(',')}`)
+          const contraintesData = await contraintesRes.json()
+          setContraintes(contraintesData.contraintes || [])
+        }
       }
     } catch (err) {
       setError('Erreur lors du chargement des données')
@@ -140,6 +166,25 @@ export default function AdminDashboardPage() {
     }
   }
 
+  // Copier tous les liens
+  const copyAllLinks = async () => {
+    if (participants.length === 0) return
+
+    const allLinks = participants
+      .map((p) => {
+        const url = generateSaisieUrl(p.token_unique)
+        return `${p.nom} - ${p.email}\n${url}\n`
+      })
+      .join('\n')
+
+    try {
+      await navigator.clipboard.writeText(allLinks)
+      alert('✅ Tous les liens ont été copiés dans le presse-papier !')
+    } catch (err) {
+      alert('❌ Erreur lors de la copie des liens')
+    }
+  }
+
   // Supprimer un participant
   const handleDeleteParticipant = async (participantId: string) => {
     if (!confirm('Êtes-vous sûr de vouloir supprimer ce participant ?')) {
@@ -158,6 +203,33 @@ export default function AdminDashboardPage() {
       await fetchData()
     } catch (err) {
       alert('Erreur lors de la suppression du participant')
+    }
+  }
+
+  // Supprimer le planning
+  const handleDeletePlanning = async () => {
+    if (!confirm('⚠️ ATTENTION : Êtes-vous sûr de vouloir supprimer ce planning ?\n\nCette action supprimera :\n- Le planning\n- Tous les participants et leurs liens\n- Toutes les contraintes saisies\n- Tous les résultats générés\n\nCette action est IRRÉVERSIBLE !')) {
+      return
+    }
+
+    if (!confirm('Confirmation finale : Supprimer définitivement ce planning ?')) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/plannings/${id}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        throw new Error('Erreur lors de la suppression')
+      }
+
+      alert('✅ Planning supprimé avec succès')
+      router.push('/')
+    } catch (err) {
+      alert('❌ Erreur lors de la suppression du planning')
+      console.error(err)
     }
   }
 
@@ -236,6 +308,34 @@ export default function AdminDashboardPage() {
   const nbParticipants = participants.length
   const nbCompleted = participants.filter((p) => p.statut_saisie === 'completed').length
   const progressPercent = nbParticipants > 0 ? Math.round((nbCompleted / nbParticipants) * 100) : 0
+
+  // Calculer les stats de satisfaction
+  const satisfactionStats: SatisfactionStats[] = participants.map((participant) => {
+    // Trouver toutes les préférences de ce participant
+    const preferences = contraintes.filter(
+      (c) => c.participant_id === participant.id && c.type_contrainte === 'preferred'
+    )
+
+    // Trouver toutes les gardes assignées à ce participant
+    const gardesAssignees = resultats.filter((r) => r.participant_id === participant.id)
+
+    // Calculer combien de préférences ont été obtenues
+    const preferencesObtenues = gardesAssignees.filter((garde) =>
+      preferences.some((pref) => pref.date_garde === garde.date_garde)
+    ).length
+
+    const tauxSatisfaction =
+      preferences.length > 0 ? Math.round((preferencesObtenues / preferences.length) * 100) : 100
+
+    return {
+      participant_id: participant.id,
+      nom: participant.nom,
+      preferences_demandees: preferences.length,
+      preferences_obtenues: preferencesObtenues,
+      taux_satisfaction: tauxSatisfaction,
+      nb_gardes: gardesAssignees.length,
+    }
+  })
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -370,9 +470,19 @@ export default function AdminDashboardPage() {
 
         {/* Liste des participants */}
         <div className="bg-white shadow-md rounded-lg p-8">
-          <h2 className="text-xl font-semibold text-gray-900 mb-6">
-            📝 Liste des participants ({nbParticipants})
-          </h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-semibold text-gray-900">
+              📝 Liste des participants ({nbParticipants})
+            </h2>
+            {nbParticipants > 0 && (
+              <button
+                onClick={copyAllLinks}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium"
+              >
+                📋 Copier tous les liens
+              </button>
+            )}
+          </div>
 
           {participants.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
@@ -522,6 +632,75 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
+        {/* Taux de satisfaction par externe */}
+        {(planning.statut === 'generated' || planning.statut === 'finalized') && satisfactionStats.length > 0 && (
+          <div className="bg-white shadow-md rounded-lg p-8 mb-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-6">
+              📊 Taux de satisfaction par externe
+            </h2>
+
+            <div className="space-y-4">
+              {satisfactionStats
+                .sort((a, b) => b.taux_satisfaction - a.taux_satisfaction)
+                .map((stat) => {
+                  const couleur =
+                    stat.taux_satisfaction >= 75
+                      ? 'bg-green-500'
+                      : stat.taux_satisfaction >= 50
+                      ? 'bg-orange-500'
+                      : 'bg-red-500'
+
+                  return (
+                    <div key={stat.participant_id} className="border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <h3 className="font-semibold text-gray-900">{stat.nom}</h3>
+                          <p className="text-sm text-gray-600">
+                            {stat.nb_gardes} garde{stat.nb_gardes > 1 ? 's' : ''} assignée{stat.nb_gardes > 1 ? 's' : ''}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-2xl font-bold text-gray-900">{stat.taux_satisfaction}%</p>
+                          <p className="text-xs text-gray-600">
+                            {stat.preferences_obtenues}/{stat.preferences_demandees} préférences
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Barre de progression */}
+                      <div className="w-full bg-gray-200 rounded-full h-3">
+                        <div
+                          className={`${couleur} h-3 rounded-full transition-all duration-500`}
+                          style={{ width: `${stat.taux_satisfaction}%` }}
+                        ></div>
+                      </div>
+
+                      {/* Indicateur textuel */}
+                      <p className="text-xs text-gray-500 mt-1">
+                        {stat.taux_satisfaction >= 75 && '🟢 Très satisfait'}
+                        {stat.taux_satisfaction >= 50 && stat.taux_satisfaction < 75 && '🟠 Moyennement satisfait'}
+                        {stat.taux_satisfaction < 50 && '🔴 Peu satisfait'}
+                        {stat.preferences_demandees === 0 && '⚪ Aucune préférence exprimée'}
+                      </p>
+                    </div>
+                  )
+                })}
+            </div>
+
+            {/* Stats globales */}
+            <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+              <p className="text-sm text-blue-900">
+                <strong>Satisfaction moyenne :</strong>{' '}
+                {Math.round(
+                  satisfactionStats.reduce((acc, s) => acc + s.taux_satisfaction, 0) /
+                    satisfactionStats.length
+                )}
+                %
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="mt-6 flex flex-col gap-4">
           {/* Message de succès */}
@@ -563,13 +742,20 @@ export default function AdminDashboardPage() {
             </div>
           )}
 
-          <div className="flex gap-4">
+          <div className="flex gap-4 flex-wrap">
             <Link
               href="/"
               className="px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition"
             >
               ← Retour à l'accueil
             </Link>
+
+            <button
+              onClick={handleDeletePlanning}
+              className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
+            >
+              🗑️ Supprimer ce planning
+            </button>
 
             {nbParticipants > 0 && progressPercent === 100 && planning.statut !== 'generated' && planning.statut !== 'finalized' && (
               <button

@@ -98,13 +98,14 @@ export async function generateOptimalPlanning(
         // Score de la variable dans la fonction objectif
         let score = 1 // Score de base
 
+        // BONUS ÉNORME pour les préférences pour forcer l'équité
         if (contrainte === 'preferred') {
-          score += 10 // Bonus pour les préférences
+          score += 1000 // Bonus massif pour que l'algo priorise TOUTES les préférences
         }
 
         // Bonus léger pour les dimanches pour aider à les équilibrer
         if (sundays.includes(date)) {
-          score += 2
+          score += 5
         }
 
         model.variables[varName] = {
@@ -161,7 +162,30 @@ export async function generateOptimalPlanning(
       })
     }
 
-    // Contrainte 5: Pas de gardes consécutives
+    // Contrainte 5: Satisfaction minimale - chaque personne doit avoir au moins 40% de ses préférences
+    participants.forEach((participant) => {
+      const preferencesParticipant = contraintes.filter(
+        (c) => c.participant_id === participant.id && c.type_contrainte === 'preferred'
+      )
+
+      if (preferencesParticipant.length > 0) {
+        // Créer une contrainte pour compter les préférences obtenues
+        const constraintName = `min_satisfaction_${participant.id}`
+        const minPreferences = Math.max(1, Math.floor(preferencesParticipant.length * 0.4))
+
+        model.constraints[constraintName] = { min: minPreferences }
+
+        // Lier cette contrainte aux variables correspondantes
+        preferencesParticipant.forEach((pref) => {
+          const varName = `x_${participant.id}_${pref.date_garde}`
+          if (model.variables[varName]) {
+            model.variables[varName][constraintName] = 1
+          }
+        })
+      }
+    })
+
+    // Contrainte 6: Pas de gardes consécutives
     participants.forEach((participant) => {
       for (let i = 0; i < dates.length - 1; i++) {
         const date1 = dates[i]
