@@ -503,10 +503,21 @@ export default function AdminDashboardPage() {
             </div>
 
             {/* Légende */}
-            <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-              <p className="text-sm text-yellow-800">
-                🌟 = Dimanche (payé double)
+            <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-sm text-blue-800">
+                🌟 = Dimanche
               </p>
+            </div>
+
+            {/* Bouton export Excel */}
+            <div className="mt-6">
+              <a
+                href={`/api/plannings/${id}/export`}
+                download
+                className="inline-flex items-center px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
+              >
+                📥 Télécharger en Excel (.xlsx)
+              </a>
             </div>
           </div>
         )}
